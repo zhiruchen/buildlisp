@@ -15,16 +15,20 @@ long eval_op(long x, char* op, long y) {
 
 long eval(mpc_ast_t* t){
 
+  printf("children_num: %d\n", t->children_num);
   /*如果被标示为数字则直接返回*/
   if (strstr(t->tag, "number")) {
+    printf("标记数字,tag: %s, contents: %s\n", t->tag, t->contents);
     return atoi(t->contents);
   }
 
+  printf("第一个child tag: %s\n", t->children[0]->tag);
   /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
   char* op = t->children[1]->contents;
-
+  printf("第二个child operator: %s\n", op);
   /*将第三个child存入x*/
   long x = eval(t->children[2]);
+  printf("第三个child value: %li\n", x);
 
   int i = 3;
   while (strstr(t->children[i]->tag, "expr")) {
@@ -36,10 +40,19 @@ long eval(mpc_ast_t* t){
   return x;
 }
 
+void print_node(mpc_ast_t* t) {
+  char* format_str = "Tag: %s| Contents: %s| Children_num: %d|\n";
+  printf(format_str, t->tag, t->contents, t->children_num);
+}
+int is_leaf(char* tag) {
+  return strstr(tag, "operator") || strstr(tag, "number");
+}
+/*统计叶子节点数*/
 int number_of_leaves(mpc_ast_t* t){
-  if (t->children_num == 0) { return 1; }
+  if (is_leaf(t->tag)) { return 1; }
+
   if (t->children_num >= 1) {
-    int total = 1;
+    int total = 0;
     for(int i=0; i<t->children_num; i++) {
       total = total + number_of_leaves(t->children[i]);
     }
