@@ -4,12 +4,23 @@
 
 #include<editline/readline.h>
 
+/* compute x^y */
+long compute_power(int x, int y) {
+  long value = 1;
+  for (int i=1; i<=y; i++) {
+    value *= x;
+  }
+
+  return value;
+}
 /*检查操作符，决定采取什么操作*/
 long eval_op(long x, char* op, long y) {
   if (strcmp(op, "+") == 0) { return x + y; }
   if (strcmp(op, "-") == 0) { return x - y; }
   if (strcmp(op, "*") == 0) { return x * y; }
   if (strcmp(op, "/") == 0) { return x / y; }
+  if (strcmp(op, "%") == 0) { return x % y; }
+  if (strcmp(op, "^") == 0) { return compute_power(x, y); }
   return 0;
 }
 
@@ -47,7 +58,7 @@ int main(int argc, char const *argv[]) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                                   \
     number   :  /-?[0-9]+/ ;                            \
-    operator :  '+' | '-' | '*' | '/' ;                 \
+    operator :  '+' | '-' | '*' | '/' | '%' | '^' ;     \
     expr     :  <number> | '(' <operator> <expr>+ ')' ; \
     lispy    :  /^/ <operator> <expr>+ /$/ ;            \
     ",
