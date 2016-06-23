@@ -4,25 +4,120 @@
 
 #include<editline/readline.h>
 
-/* compute x^y */
-long compute_power(int x, int y) {
-  long value = 1;
-  for (int i=1; i<=y; i++) {
-    value *= x;
+//lval Lisp Value
+typedef struct {
+  int type;  //Number or Error
+  long num;  //value
+  char* err; //error string
+  char* sym;
+  /* Count and Pointer to a list of "lval*" */
+  int count;
+  struct lval** cell;
+} lval;
+
+/* 创建lval的可能的值的枚举类型 */
+enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR };
+
+/* 创建一个指向lval Number的指针 */
+lval* lval_num(long x) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_NUM;
+  v->num = x;
+  return v;
+}
+
+/* 构造一个指向新的Error lval 的指针*/
+lval* lval_err(int x) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_ERR;
+  v->err = malloc(strlen(m) + 1);
+  strcpy(v->err, m);
+  return v;
+}
+
+/* 创建一个指向新Symbol lval 的指针 */
+lval* lval_sym(char* s) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SYM;
+  v->sym = malloc(strlen(s) + 1);
+  strcpy(v->sym, s);
+  return v;
+}
+
+/* 一个指向新的S表达式的lval的指针 */
+lval* lval_sexpr(void) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SEXPR;
+  v->count = 0;
+  v->cell = NULL; // NUll is a special contant that points to memory location 0
+  return v;
+}
+
+void lval_del(lval* v) {
+  switch (v->type) {
+    case LVAL_NUM: break;
+    /* 对错误和符号来说，删除对应的字符串*/
+    case LVAL_ERR: free(v->err); break;
+    case LVAL_SYM: free(v->sym); break;
+
+    /* 如果是sexpr 则删除其中所有元素*/
+    case LVAL_SEXPR:
+      for (int i = 0; i < v->count; i++) {
+        lval_del(v->cell[i]);
+      }
+      free(v->cell);
+    break;
+  }
+  /* 释放lval结构体本身被分配的内存*/
+  free(v);
+}
+/*Print an "lval "*/
+void lval_print(lval v) {
+  switch (v.type) {
+    /* 如果是数字，直接输出 */
+    case LVAL_NUM: printf("%li", v.num); break;
+    case LVAL_ERR:
+      /* 检查是什么错误类型，然后好输出 */
+      if (v.err == LERR_DIV_ZERO) {
+        printf("Error: Division By Zero!");
+      }
+      if (v.err == LERR_BAD_OP) {
+        printf("Error: Invalid Operator!");
+      }
+      if (v.err == LERR_BAD_NUM) {
+        printf("Error: Invalid Number!");
+      }
+      break;
+  }
+}
+void lval_println(lval v) { lval_print(v); putchar('\n'); }
+
+
+lval eval(mpc_ast_t* t){
+
+  /*如果被标示为数字则直接返回*/
+  if (strstr(t->tag, "number")) {
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE ? lval_num(x): lval_err(LERR_BAD_NUM);
   }
 
-  return value;
+  /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
+  char* op = t->children[1]->contents;
+
+  /*将第三个child存入x*/
+  lval x = eval(t->children[2]);
+
+  int i = 3;
+  while (strstr(t->children[i]->tag, "expr")) {
+    /* code */
+    x = eval_op(x, op, eval(t->children[i]));
+    i++;
+  }
+
+  return x;
 }
-/*检查操作符，决定采取什么操作*/
-long eval_op(long x, char* op, long y) {
-  if (strcmp(op, "+") == 0) { return x + y; }
-  if (strcmp(op, "-") == 0) { return x - y; }
-  if (strcmp(op, "*") == 0) { return x * y; }
-  if (strcmp(op, "/") == 0) { return x / y; }
-  if (strcmp(op, "%") == 0) { return x % y; }
-  if (strcmp(op, "^") == 0) { return compute_power(x, y); }
-  return 0;
-}
+
 
 long eval(mpc_ast_t* t){
 
@@ -79,8 +174,8 @@ int main(int argc, char const *argv[]) {
     if (mpc_parse("<stdin>", input, Lispy, &r)){
       /* On success print the AST*/
       mpc_ast_print(r.output);
-      long result = eval(r.output);
-      printf("%li\n", result);
+      lval result = eval(r.output);
+      lval_println(result);
       mpc_ast_delete(r.output);
     }
     else{
