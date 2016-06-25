@@ -27,7 +27,7 @@ lval* lval_num(long x) {
 }
 
 /* 构造一个指向新的Error lval 的指针*/
-lval* lval_err(int x) {
+lval* lval_err(char* m) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_ERR;
   v->err = malloc(strlen(m) + 1);
@@ -71,76 +71,121 @@ void lval_del(lval* v) {
   /* 释放lval结构体本身被分配的内存*/
   free(v);
 }
-/*Print an "lval "*/
-void lval_print(lval v) {
-  switch (v.type) {
-    /* 如果是数字，直接输出 */
-    case LVAL_NUM: printf("%li", v.num); break;
-    case LVAL_ERR:
-      /* 检查是什么错误类型，然后好输出 */
-      if (v.err == LERR_DIV_ZERO) {
-        printf("Error: Division By Zero!");
-      }
-      if (v.err == LERR_BAD_OP) {
-        printf("Error: Invalid Operator!");
-      }
-      if (v.err == LERR_BAD_NUM) {
-        printf("Error: Invalid Number!");
-      }
-      break;
-  }
+
+lval* lval_read_num(mpc_ast_t* t) {
+  errno = 0;
+  long x = strtol(t->contents, NULL, 10);
+  return errno != ERANGE ?
+    lval_num(x): lval_err("invalid number");
 }
-void lval_println(lval v) { lval_print(v); putchar('\n'); }
 
 
-lval eval(mpc_ast_t* t){
+lval* lval_add(lval* v, lval* x) {
+  v->count++;  //子表达式计数加1
+  /* 重新分配内存 */
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  v->cell[v->count-1] = x;  //存入子表达式x
+  return v;
+}
+lval* lval_read(mpc_ast_t* t) {
 
-  /*如果被标示为数字则直接返回*/
-  if (strstr(t->tag, "number")) {
-    errno = 0;
-    long x = strtol(t->contents, NULL, 10);
-    return errno != ERANGE ? lval_num(x): lval_err(LERR_BAD_NUM);
-  }
+  /* if symbol or number return conversion to that type */
+  if (strstr(t->tag, "number")) { return lval_read_num(t); }
+  if (strstr(t->tag, "symbol")) { return lval_sym(t->contents); }
 
-  /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
-  char* op = t->children[1]->contents;
+  /* If root (>) or sexpr then create empty list */
+  lval* x = NULL;
+  if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
+  if (strstr(t->tag, "sexpr"))  { x = lval_sexpr(); }
 
-  /*将第三个child存入x*/
-  lval x = eval(t->children[2]);
-
-  int i = 3;
-  while (strstr(t->children[i]->tag, "expr")) {
-    /* code */
-    x = eval_op(x, op, eval(t->children[i]));
-    i++;
+  /* Fill this list with any valid expression contained within */
+  for (int i = 0; i < t->children_num; i++) {
+    if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, ")") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, "{") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, "}") == 0) { continue; }
+    if (strcmp(t->children[i]->tag,  "regex") == 0) { continue; }
+    x = lval_add(x, lval_read(t->children[i]));
   }
 
   return x;
+
 }
 
+void lval_print(lval* v);
 
-long eval(mpc_ast_t* t){
-
-  /*如果被标示为数字则直接返回*/
-  if (strstr(t->tag, "number")) {
-    return atoi(t->contents);
+void lval_expr_print(lval* v, char open, char close) {
+  putchar(open);
+  for (int i = 0; i < v->count; i++) {
+    lval_print(v->cell[i]);
+    if (i != v->count-1) {
+      putchar(' ');
+    }
   }
-
-  /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
-  char* op = t->children[1]->contents;
-
-  /*将第三个child存入x*/
-  long x = eval(t->children[2]);
-
-  int i = 3;
-  while (strstr(t->children[i]->tag, "expr")) {
-    /* code */
-    x = eval_op(x, op, eval(t->children[i]));
-    i++;
-  }
-
-  return x;
+  putchar(close);
 }
+
+void lval_print(lval* v) {
+  switch (v->type) {
+    case LVAL_NUM: printf("%li", v->num); break;
+    case LVAL_ERR: printf("%s",  v->err); break;
+    case LVAL_SYM: printf("%s",  v->sym); break;
+    case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
+  }
+}
+
+void lval_println(lval* v) { lval_print(v); putchar('\n'); }
+
+
+// lval eval(mpc_ast_t* t){
+//
+//   /*如果被标示为数字则直接返回*/
+//   if (strstr(t->tag, "number")) {
+//     errno = 0;
+//     long x = strtol(t->contents, NULL, 10);
+//     return errno != ERANGE ? lval_num(x): lval_err(LERR_BAD_NUM);
+//   }
+//
+//   /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
+//   char* op = t->children[1]->contents;
+//
+//   /*将第三个child存入x*/
+//   lval x = eval(t->children[2]);
+//
+//   int i = 3;
+//   while (strstr(t->children[i]->tag, "expr")) {
+//     /* code */
+//     x = eval_op(x, op, eval(t->children[i]));
+//     i++;
+//   }
+//
+//   return x;
+// }
+
+
+// long eval(mpc_ast_t* t){
+//
+//   /*如果被标示为数字则直接返回*/
+//   if (strstr(t->tag, "number")) {
+//     return atoi(t->contents);
+//   }
+//
+//   /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
+//   char* op = t->children[1]->contents;
+//
+//   /*将第三个child存入x*/
+//   long x = eval(t->children[2]);
+//
+//   int i = 3;
+//   while (strstr(t->children[i]->tag, "expr")) {
+//     /* code */
+//     x = eval_op(x, op, eval(t->children[i]));
+//     i++;
+//   }
+//
+//   return x;
+// }
+
 int main(int argc, char const *argv[]) {
   /* polish notation */
   // create some parser
@@ -172,11 +217,11 @@ int main(int argc, char const *argv[]) {
 
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r)){
-      /* On success print the AST*/
-      mpc_ast_print(r.output);
-      lval result = eval(r.output);
-      lval_println(result);
-      mpc_ast_delete(r.output);
+
+      lval* v = lval_read(r.output);
+      lval_println(v);
+      lval_del(v);
+
     }
     else{
       /* otherwise print error*/
