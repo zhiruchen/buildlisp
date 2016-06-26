@@ -5,7 +5,7 @@
 #include<editline/readline.h>
 
 //lval Lisp Value
-typedef struct {
+typedef struct lval{
   int type;  //Number or Error
   long num;  //value
   char* err; //error string
@@ -112,6 +112,26 @@ lval* lval_read(mpc_ast_t* t) {
 
 }
 
+lval* lval_pop(lval* v, int i) {
+  /* 找到要弹出的lval* */
+  lval* x = v->cell[i];
+
+  //Shift the memory after the item at i over the top
+  memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
+
+  v->count--;
+  //Reallocate the memory used
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  return x;
+}
+
+//taking an element from the list and deleting the rest
+lval* lval_take(lval* v, int i) {
+  lval* x = lval_pop(v, i);
+  lval_del(v);
+  return x;
+}
+
 void lval_print(lval* v);
 
 void lval_expr_print(lval* v, char open, char close) {
@@ -136,55 +156,85 @@ void lval_print(lval* v) {
 
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
+lval* builtin_op(lval* a, char* op) {
 
-// lval eval(mpc_ast_t* t){
-//
-//   /*如果被标示为数字则直接返回*/
-//   if (strstr(t->tag, "number")) {
-//     errno = 0;
-//     long x = strtol(t->contents, NULL, 10);
-//     return errno != ERANGE ? lval_num(x): lval_err(LERR_BAD_NUM);
-//   }
-//
-//   /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
-//   char* op = t->children[1]->contents;
-//
-//   /*将第三个child存入x*/
-//   lval x = eval(t->children[2]);
-//
-//   int i = 3;
-//   while (strstr(t->children[i]->tag, "expr")) {
-//     /* code */
-//     x = eval_op(x, op, eval(t->children[i]));
-//     i++;
-//   }
-//
-//   return x;
-// }
+  /* 确保所有输入是数字 */
+  for (int i = 0; i< a->count; i++) {
+    if (a->cell[i]->type != LVAL_NUM) {
+      lval_del(a);
+      return lval_err("Cannot operate on non-numbers!");
+    }
+  }
+  //pop the first element
+  lval* x = lval_pop(a, 0);
+  if(strcmp(op, "-") == 0 && a->count == 0) {
+    x->num = -x->num;
+  }
+
+  /* 仍有元素剩余*/
+  while (a->count > 0) {
+    //pop the next element
+    lval* y = lval_pop(a, 0);
+    if (strcmp(op, "+") == 0) { x->num += y->num; }
+    if (strcmp(op, "-") == 0) { x->num -= y->num; }
+    if (strcmp(op, "*") == 0) { x->num *= y->num; }
+    if (strcmp(op, "/") == 0) {
+      if(y->num == 0) {
+        lval_del(x); lval_del(y);
+        x = lval_err("Division by zero!"); break;
+      }
+      x->num /= y->num;
+
+      lval_del(y);
+    }
+
+  }
+
+  lval_del(a);
+  return x;
+}
+
+lval* lval_eval(lval* v);
+
+lval* lval_eval_sexpr(lval* v) {
+  /*求值子结点*/
+  for (int i = 0; i< v->count; i++) {
+    v->cell[i] = lval_eval(v->cell[i]);
+  }
+
+  /*错误检查*/
+  for (int i = 0; i < v->count; i++) {
+    if (v->cell[i]->type == LVAL_ERR) { return lval_take(v, i); }
+  }
+
+  /**/
+  if (v->count == 0) { return v; } //空表达式
+  if (v->count == 1) { return lval_take(v, 0); }  //一个表达式
+
+  /* 确保第一个表达式是一个Symbol */
+  lval* f = lval_pop(v, 0);
+  if (f->type != LVAL_SYM) {
+    lval_del(f); lval_del(v);
+    return lval_err("S Expression Does not start with symbol!");
+  }
+
+  /* call builtin_op with operator */
+  lval* result = builtin_op(v, f->sym);
+  lval_del(f);
+  return result;
+
+}
+
+//taking a element from list and popping it out
+//leaving what remains
+lval* lval_eval(lval* v) {
+  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+
+  /*其他类型的直接返回*/
+  return v;
+}
 
 
-// long eval(mpc_ast_t* t){
-//
-//   /*如果被标示为数字则直接返回*/
-//   if (strstr(t->tag, "number")) {
-//     return atoi(t->contents);
-//   }
-//
-//   /*如果一个节点被标记为expr但不是数字，那么需要检查它的第二个child是什么操作符*/
-//   char* op = t->children[1]->contents;
-//
-//   /*将第三个child存入x*/
-//   long x = eval(t->children[2]);
-//
-//   int i = 3;
-//   while (strstr(t->children[i]->tag, "expr")) {
-//     /* code */
-//     x = eval_op(x, op, eval(t->children[i]));
-//     i++;
-//   }
-//
-//   return x;
-// }
 
 int main(int argc, char const *argv[]) {
   /* polish notation */
@@ -218,10 +268,10 @@ int main(int argc, char const *argv[]) {
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r)){
 
-      lval* v = lval_read(r.output);
+      lval* v = lval_eval(lval_read(r.output));
       lval_println(v);
       lval_del(v);
-
+      mpc_ast_delete(r.output);
     }
     else{
       /* otherwise print error*/
@@ -235,3 +285,20 @@ int main(int argc, char const *argv[]) {
   mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);  //undefine and delete parsers
   return 0;
 }
+/*
+→ ./ch9_s_expression
+Lispy Version 0.0.0.0.1
+Please press Ctrl + C to Exit
+
+lispy--> ()
+()
+lispy--> (+ 5)
+5
+lispy--> (- 5)
+-5
+lispy--> + 1111 (* 100 100)
+11111
+lispy--> * 100 1000 10000 1000000
+1000000000000000
+lispy-->
+*/
