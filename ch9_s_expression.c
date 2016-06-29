@@ -18,6 +18,9 @@ typedef struct lval{
 /* 创建lval的可能的值的枚举类型 */
 enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
+#define LASSERT(args, cond, err) \
+  if (!(cond)) { lval_del(args); return lval_err(err); }
+
 /* 创建一个指向lval Number的指针 */
 lval* lval_num(long x) {
   lval* v = malloc(sizeof(lval));
@@ -96,6 +99,8 @@ lval* lval_add(lval* v, lval* x) {
   v->cell[v->count-1] = x;  //存入子表达式x
   return v;
 }
+
+
 lval* lval_read(mpc_ast_t* t) {
 
   /* if symbol or number return conversion to that type */
@@ -166,6 +171,37 @@ void lval_print(lval* v) {
 }
 
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
+
+/*repeatedly pop and delete the item at index 1 util there nothing left in list*/
+lval* builtin_head(lval* a) {
+  LASSERT(a, a->count == 1,
+    "Function 'head' passed too many arguments! ");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'head' passed incorrect type! ");
+  LASSERT(a, a->cell[0]->count != 0,
+    "Function 'head' paased {}! ");
+
+  lval* v = lval_take(a, 0);
+  while (v->count > 1) { lval_del(lval_pop(v, 1));}
+  return v;
+}
+
+/*
+pop and delete item at index 0, leaving the tail remaining
+*/
+lval* builtin_tail(lval* a) {
+  LASSERT(a, a->count == 1,
+    "Function 'tail' passed too many arguments! ");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'tail' passed incorrect type! ");
+  LASSERT(a, a->cell[0]->count != 0,
+    "Function 'tail' paased {}! ");
+
+  lval* v = lval_take(a, 0);
+  lval_del(lval_pop(v, 0));
+  return v;
+}
+
 
 lval* builtin_op(lval* a, char* op) {
 
@@ -244,6 +280,8 @@ lval* lval_eval(lval* v) {
   /*其他类型的直接返回*/
   return v;
 }
+
+
 
 
 
