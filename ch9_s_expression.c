@@ -202,6 +202,54 @@ lval* builtin_tail(lval* a) {
   return v;
 }
 
+lval* builtin_list(lval* a) {
+  a->type = LVAL_QEXPR;
+  return a;
+}
+
+lval* lval_eval(lval* v);
+
+lval* builtin_eval(lval* a) {
+  LASSERT(a, a->count == 1,
+    "Function 'eval' passed too many arguments! ");
+
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'eval' passed the incorrect type! ");
+
+  lval* x = lval_take(a, 0);
+  x->type = LVAL_SEXPR;
+  return lval_eval(x);
+}
+
+
+lval* lval_join(lval* x, lval* y) {
+
+  /* 把每一个y中的cell添加到x中 */
+  while(y->count) {
+    x = lval_add(x, lval_pop(y, 0));
+  }
+
+  /* 删除空的y，返回x */
+  lval_del(y);
+  return x;
+}
+
+
+lval* builtin_join(lval* a) {
+
+  for (int i = 0; i < a->count; i++) {
+    LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
+      "Function 'join' passed incorrect type! ");
+  }
+
+  lval* x = lval_pop(a, 0);
+  while(a->count) {
+    x = lval_join(x, lval_pop(a, 0));
+  }
+  lval_del(a);
+  return x;
+}
+
 
 lval* builtin_op(lval* a, char* op) {
 
@@ -241,7 +289,18 @@ lval* builtin_op(lval* a, char* op) {
   return x;
 }
 
-lval* lval_eval(lval* v);
+
+lval* builtin(lval* a, char* func) {
+  if (strcmp("list", func) == 0) { return builtin_list(a); }
+  if (strcmp("head", func) == 0) { return builtin_head(a); }
+  if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+  if (strcmp("join", func) == 0) { return builtin_join(a); }
+  if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+  if (strstr("+-*/", func)) { return builtin_op(a, func); }
+  lval_del(a);
+  return lval_err("Unknown Function! ");
+}
+
 
 lval* lval_eval_sexpr(lval* v) {
   /*求值子结点*/
@@ -265,8 +324,8 @@ lval* lval_eval_sexpr(lval* v) {
     return lval_err("S Expression Does not start with symbol!");
   }
 
-  /* call builtin_op with operator */
-  lval* result = builtin_op(v, f->sym);
+  /* call builtin with operator */
+  lval* result = builtin(v, f->sym);
   lval_del(f);
   return result;
 
@@ -280,8 +339,6 @@ lval* lval_eval(lval* v) {
   /*其他类型的直接返回*/
   return v;
 }
-
-
 
 
 
@@ -338,19 +395,18 @@ int main(int argc, char const *argv[]) {
   return 0;
 }
 /*
-→ ./ch9_s_expression
-Lispy Version 0.0.0.0.1
-Please press Ctrl + C to Exit
-
-lispy--> ()
-()
-lispy--> (+ 5)
-5
-lispy--> (- 5)
--5
-lispy--> + 1111 (* 100 100)
-11111
-lispy--> * 100 1000 10000 1000000
-1000000000000000
-lispy-->
+lispy--> list 1 2 3 4
+{1 2 3 4}
+lispy--> {head {list 1 2 3 4}}
+{head {list 1 2 3 4}}
+lispy--> eval {head (list 1 2 3 4)}
+{1}
+lispy--> tail {tail tail tail}
+{tail tail}
+lispy--> eval (tail {tail tail {5 6 7}})
+{6 7}
+lispy--> eval (head {(+ 1 2) (* 10 10)})
+3
+lispy--> eval (tail {(+ 1 2) (* 10 10)})
+100
 */
