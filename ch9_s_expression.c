@@ -4,22 +4,65 @@
 
 #include<editline/readline.h>
 
+struct lval;
+struct lenv;
+typedef struct lval;
+typedef struct lenv;
+
+/* 创建lval的可能的值的枚举类型 */
+enum { LVAL_NUM, LVAL_ERR, LVAL_SYM,
+       LVAL_FUN, LVAL_SEXPR, LVAL_QEXPR };
+
+
+/*
+  声明了一个类型为lval*, 名为lbuiltind的函数指针
+*/
+typedef lval*(*lbuiltin)(lenv*, lval*);
+
+
 //lval Lisp Value
-typedef struct lval{
+struct lval {
   int type;  //Number or Error
   long num;  //value
   char* err; //error string
   char* sym;
+
+  lbuiltin fun;
   /* Count and Pointer to a list of "lval*" */
   int count;
   struct lval** cell;
-} lval;
+};
 
-/* 创建lval的可能的值的枚举类型 */
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
+
+/* env structure */
+struct lenv {
+  int count;
+  char* syms;
+  lval** vals;
+}
+
+
+lenv* lenv_new(void) {
+  lenv* e = malloc(sizeof(lenv));
+  e->count = 0;
+  e->syms = NULL;
+  e->vals = NULL;
+  return e;
+}
+
 
 #define LASSERT(args, cond, err) \
   if (!(cond)) { lval_del(args); return lval_err(err); }
+
+
+/* constructor of LVAL_FUN */
+lval* lval_fun(lbuiltin func) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_FUN;
+  v->fun->func;
+  return v;
+}
+
 
 /* 创建一个指向lval Number的指针 */
 lval* lval_num(long x) {
@@ -28,6 +71,7 @@ lval* lval_num(long x) {
   v->num = x;
   return v;
 }
+
 
 /* 构造一个指向新的Error lval 的指针*/
 lval* lval_err(char* m) {
@@ -79,10 +123,23 @@ void lval_del(lval* v) {
       }
       free(v->cell);
     break;
+    case LVAL_FUN: break;
   }
   /* 释放lval结构体本身被分配的内存*/
   free(v);
 }
+
+
+void lenv_del(lenv* e) {
+  for(int i=0;i <e->count; i++) {
+    free(e->syms[i]);
+    lval_del(e->vals[i]);
+  }
+  free(e->syms);
+  free(e->vals);
+  free(e);
+}
+
 
 lval* lval_read_num(mpc_ast_t* t) {
   errno = 0;
@@ -147,6 +204,43 @@ lval* lval_take(lval* v, int i) {
   return x;
 }
 
+
+/* 从环境中拿东西或者往环境中添加东西 */
+lval* lval_copy(lval* v) {
+
+  lval* x = malloc(sizeof(lval));
+  x->type = v->type;
+
+  switch(v->type) {
+    /* 函数和数字直接拷贝 */
+    case LVAL_FUN: x->fun = v->fun; break;
+    case LVAL_NUM: x->num = v->num; break;
+
+    /* 拷贝字符串用malloc 和 strcpy */
+    case LVAL_ERR:
+      x->err = malloc(strlen(v->errr) + 1);
+      strcpy(x->err, v->err); break;
+
+    case LVAL_SYM:
+      x->sym = malloc(strlen(v->sym) + 1);
+      strcpy(x->sym, v->sym); break;
+
+    /* 拷贝列表通过拷贝每一个子表达式 */
+    case LVAL_SEXPR:
+    case LVAL_QEXPR:
+      x->count = v->count;
+      x->cell = malloc(sizeof(lval*) * x->count);
+      for (int i=0; i<x->count; i++) {
+        x->cell[i] = lval_copy(v->cell[i]);
+      }
+      break;
+
+  }
+
+  return x;
+}
+
+
 void lval_print(lval* v);
 
 void lval_expr_print(lval* v, char open, char close) {
@@ -167,6 +261,7 @@ void lval_print(lval* v) {
     case LVAL_SYM: printf("%s",  v->sym); break;
     case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
     case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
+    case LVAL_FUN: printf("<function>"); break;
   }
 }
 
@@ -352,12 +447,13 @@ int main(int argc, char const *argv[]) {
   mpc_parser_t* Expr = mpc_new("expr");
   mpc_parser_t* Lispy = mpc_new("lispy");
 
-  /* define them with the following Language */
+  /* define them with the following Language
+  [a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+
+  */
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                                         \
     number   :  /-?[0-9]+/ ;                                  \
-    symbol   :  \"list\"| \"head\" | \"tail\"                 \
-             |  \"join\" | \"eval\" | '+' | '-' | '*' | '/' ; \
+    symbol   :  /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/ ; \
     sexpr    :  '(' <expr>* ')' ;                             \
     qexpr    :  '{' <expr>* '}' ;                             \
     expr     :  <number> | <symbol> | <sexpr> | <qexpr>;      \
