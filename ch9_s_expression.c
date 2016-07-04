@@ -6,8 +6,8 @@
 
 struct lval;
 struct lenv;
-typedef struct lval;
-typedef struct lenv;
+typedef struct lval lval;
+typedef struct lenv lenv;
 
 /* 创建lval的可能的值的枚举类型 */
 enum { LVAL_NUM, LVAL_ERR, LVAL_SYM,
@@ -39,7 +39,7 @@ struct lenv {
   int count;
   char* syms;
   lval** vals;
-}
+};
 
 
 lenv* lenv_new(void) {
@@ -59,7 +59,7 @@ lenv* lenv_new(void) {
 lval* lval_fun(lbuiltin func) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_FUN;
-  v->fun->func;
+  v->fun = func;
   return v;
 }
 
@@ -131,7 +131,7 @@ void lval_del(lval* v) {
 
 
 void lenv_del(lenv* e) {
-  for(int i=0;i <e->count; i++) {
+  for(int i = 0; i < e->count; i++) {
     free(e->syms[i]);
     lval_del(e->vals[i]);
   }
@@ -218,7 +218,7 @@ lval* lval_copy(lval* v) {
 
     /* 拷贝字符串用malloc 和 strcpy */
     case LVAL_ERR:
-      x->err = malloc(strlen(v->errr) + 1);
+      x->err = malloc(strlen(v->err) + 1);
       strcpy(x->err, v->err); break;
 
     case LVAL_SYM:
@@ -238,6 +238,43 @@ lval* lval_copy(lval* v) {
   }
 
   return x;
+}
+
+/* get value from the env */
+lval* lenv_get(lenv* e, lval* k) {
+
+  for (int i = 0; i < e->count; i++) {
+    if (strcmp(e->syms[i], k->sym) == 0) {
+      return lval_copy(e->vals[i]);
+    }
+  }
+
+  /* 如果没找到任何符号返回错误 */
+  return lval_err("unbound symbol! ");
+}
+
+
+void lenv_put(lenv* e, lval* k, lval* v) {
+
+/* to see if variable already exists */
+  for (int i = 0; i < e->count; i++) {
+    if (strcmp(e->syms[i], k->sym) == 0) {
+      lval_del(e->vals[i]);
+      e->vals[i] = lval_copy(v);
+      return;
+    }
+  }
+
+  /* 如果没找到已存在的entry， 为新的entry分配内存 */
+  e->count ++;
+  e->vals = realloc(e->vals, sizeof(lval*) * e->count);
+  e->syms = realloc(e->syms, sizeof(char*) * e->count);
+
+  /* 将k， v的内容拷贝到新分配的位置 */
+  e->syms[e->count-1] = malloc(strlen(k->sym)+1);
+  strcpy(e->syms[e->count-1], k->sym);
+  e->vals[e->count-1] = lval_copy(v);
+
 }
 
 
@@ -268,7 +305,7 @@ void lval_print(lval* v) {
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 /*repeatedly pop and delete the item at index 1 util there nothing left in list*/
-lval* builtin_head(lval* a) {
+lval* builtin_head(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
     "Function 'head' passed too many arguments! ");
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
@@ -284,7 +321,7 @@ lval* builtin_head(lval* a) {
 /*
 pop and delete item at index 0, leaving the tail remaining
 */
-lval* builtin_tail(lval* a) {
+lval* builtin_tail(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
     "Function 'tail' passed too many arguments! ");
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
@@ -297,14 +334,14 @@ lval* builtin_tail(lval* a) {
   return v;
 }
 
-lval* builtin_list(lval* a) {
+lval* builtin_list(lenv* e, lval* a) {
   a->type = LVAL_QEXPR;
   return a;
 }
 
-lval* lval_eval(lval* v);
+lval* lval_eval(lenv* e, lval* v);
 
-lval* builtin_eval(lval* a) {
+lval* builtin_eval(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
     "Function 'eval' passed too many arguments! ");
 
@@ -313,7 +350,7 @@ lval* builtin_eval(lval* a) {
 
   lval* x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
-  return lval_eval(x);
+  return lval_eval(e, x);
 }
 
 
@@ -330,7 +367,7 @@ lval* lval_join(lval* x, lval* y) {
 }
 
 
-lval* builtin_join(lval* a) {
+lval* builtin_join(lenv* e, lval* a) {
 
   for (int i = 0; i < a->count; i++) {
     LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
@@ -346,7 +383,7 @@ lval* builtin_join(lval* a) {
 }
 
 
-lval* builtin_op(lval* a, char* op) {
+lval* builtin_op(lenv* e, lval* a, char* op) {
 
   /* 确保所有输入是数字 */
   for (int i = 0; i< a->count; i++) {
@@ -385,22 +422,60 @@ lval* builtin_op(lval* a, char* op) {
 }
 
 
-lval* builtin(lval* a, char* func) {
-  if (strcmp("list", func) == 0) { return builtin_list(a); }
-  if (strcmp("head", func) == 0) { return builtin_head(a); }
-  if (strcmp("tail", func) == 0) { return builtin_tail(a); }
-  if (strcmp("join", func) == 0) { return builtin_join(a); }
-  if (strcmp("eval", func) == 0) { return builtin_eval(a); }
-  if (strstr("+-*/", func)) { return builtin_op(a, func); }
-  lval_del(a);
-  return lval_err("Unknown Function! ");
+lval* builtin_add(lenv* e, lval* a) {
+  return builtin_op(e, a, "+");
+}
+
+lval* builtin_sub(lenv* e, lval* a) {
+  return builtin_op(e, a, "-");
+}
+
+lval* builtin_mul(lenv* e, lval* a) {
+  return builtin_op(e, a, "*");
+}
+
+lval* builtin_div(lenv* e, lval* a) {
+  return builtin_op(e, a, "/");
 }
 
 
-lval* lval_eval_sexpr(lval* v) {
+void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
+  lval* k = lval_sym(name);
+  lval* v = lval_fun(func);
+  lenv_put(e, k, v);
+  lval_del(k); lval_del(v);
+}
+
+void lenv_add_builtins(lenv* e) {
+  /**/
+  lenv_add_builtin(e, "list", builtin_list);
+  lenv_add_builtin(e, "head", builtin_head);
+  lenv_add_builtin(e, "tail", builtin_tail);
+  lenv_add_builtin(e, "eval", builtin_eval);
+  lenv_add_builtin(e, "join", builtin_join);
+
+  lenv_add_builtin(e, "+", builtin_add);
+  lenv_add_builtin(e, "-", builtin_sub);
+  lenv_add_builtin(e, "*", builtin_mul);
+  lenv_add_builtin(e, "/", builtin_div);
+}
+
+// lval* builtin(lval* a, char* func) {
+//   if (strcmp("list", func) == 0) { return builtin_list(a); }
+//   if (strcmp("head", func) == 0) { return builtin_head(a); }
+//   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+//   if (strcmp("join", func) == 0) { return builtin_join(a); }
+//   if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+//   if (strstr("+-*/", func)) { return builtin_op(a, func); }
+//   lval_del(a);
+//   return lval_err("Unknown Function! ");
+// }
+
+
+lval* lval_eval_sexpr(lenv* e, lval* v) {
   /*求值子结点*/
   for (int i = 0; i< v->count; i++) {
-    v->cell[i] = lval_eval(v->cell[i]);
+    v->cell[i] = lval_eval(e, v->cell[i]);
   }
 
   /*错误检查*/
@@ -414,13 +489,13 @@ lval* lval_eval_sexpr(lval* v) {
 
   /* 确保第一个表达式是一个Symbol */
   lval* f = lval_pop(v, 0);
-  if (f->type != LVAL_SYM) {
+  if (f->type != LVAL_FUN) {
     lval_del(f); lval_del(v);
-    return lval_err("S Expression Does not start with symbol!");
+    return lval_err("first element is not a function! ");
   }
 
   /* call builtin with operator */
-  lval* result = builtin(v, f->sym);
+  lval* result = f->fun(e, v);
   lval_del(f);
   return result;
 
@@ -428,8 +503,15 @@ lval* lval_eval_sexpr(lval* v) {
 
 //taking a element from list and popping it out
 //leaving what remains
-lval* lval_eval(lval* v) {
-  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+lval* lval_eval(lenv* e, lval* v) {
+
+  if (v->type == LVAL_SYM) {
+    lval* x = lenv_get(e, v);
+    lval_del(v);
+    return x;
+  }
+
+  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(e, v); }
 
   /*其他类型的直接返回*/
   return v;
@@ -464,6 +546,8 @@ int main(int argc, char const *argv[]) {
   puts("Lispy Version 0.0.0.0.1");
   puts("Please press Ctrl + C to Exit\n");
 
+  lenv* e = lenv_new();
+  lenv_add_builtins(e);
   while (1) {
     /* output our prompt and get the input*/
     char* input = readline("lispy--> ");
@@ -473,7 +557,7 @@ int main(int argc, char const *argv[]) {
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r)){
 
-      lval* v = lval_eval(lval_read(r.output));
+      lval* v = lval_eval(e, lval_read(r.output));
       lval_println(v);
       lval_del(v);
       mpc_ast_delete(r.output);
@@ -487,6 +571,7 @@ int main(int argc, char const *argv[]) {
     free(input);
   }
 
+  lenv_del(e);
   mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr,Expr, Lispy);  //undefine and delete parsers
   return 0;
 }
